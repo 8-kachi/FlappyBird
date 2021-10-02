@@ -6,6 +6,7 @@
 //
 
 import SpriteKit
+import AVFoundation
 
 class GameScene: SKScene, SKPhysicsContactDelegate {
     
@@ -14,6 +15,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var bird:SKSpriteNode!
     
     var hana:SKSpriteNode!//追加
+    var itemNode:SKSpriteNode!//追加
     
     //衝突判定カテゴリー
     let birdCategory: UInt32 = 1 << 0     //0...00001
@@ -34,6 +36,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var item = 0
     var itemLabelNode:SKLabelNode!
     
+    //アイテム用
+    let gethanaPath = Bundle.main.bundleURL.appendingPathComponent("gethana.mp3")
+    var gethanaPlayer = AVAudioPlayer()
+    
+    
     //SKView上にシーンが表示されたときに呼ばれるメソッド
     override func didMove(to view: SKView) {
         
@@ -50,6 +57,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         //壁用のノード
         wallNode = SKNode() //追加
         scrollNode.addChild(wallNode) //追加
+        
+        //花用のノード
+        itemNode = SKSpriteNode()
+        scrollNode.addChild(itemNode)
         
         //各種スプライトを生成する処理をメソッドに分割
         setupGround()
@@ -245,18 +256,36 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let hanaTexture = SKTexture(imageNamed: "hana4040")
         hanaTexture.filteringMode = .linear
         
-        // スプライトを作成
-        hana = SKSpriteNode(texture: hanaTexture)
-        hana.position = CGPoint(x: 100, y: 500)
+        let movingDistance = self.frame.size.width + hanaTexture.size().width
+        //画面外まで移動するアクションを作成
+        let moveHana = SKAction.moveBy(x: -movingDistance, y: 0, duration: 4)
+        //自身を取り除くアクションを作成
+        let removeHana = SKAction.removeFromParent()
+        //
+        let hanaAnimation = SKAction.sequence([moveHana,removeHana])
         
-        //アイテムアップ用のノード
-        hana.physicsBody = SKPhysicsBody(rectangleOf: CGSize(width: hana.size.width, height: self.frame.size.height))
-        hana.physicsBody?.categoryBitMask = self.hanaCategory
-        hana.physicsBody?.contactTestBitMask = self.birdCategory
-        hana.physicsBody?.isDynamic = false
-        
-        // スプライトを追加する
-        addChild(hana)
+        let createHanaAnimation = SKAction.run({
+            // スプライトを作成
+            let hana = SKSpriteNode(texture: hanaTexture)
+            hana.position = CGPoint(x: 400, y: 500)
+            
+            //アイテムアップ用のノード
+            hana.physicsBody = SKPhysicsBody(rectangleOf: hanaTexture.size())
+            hana.physicsBody?.categoryBitMask = self.hanaCategory
+            hana.physicsBody?.contactTestBitMask = self.birdCategory
+            hana.physicsBody?.isDynamic = false
+            
+            // スプライトを追加する
+            hana.run(hanaAnimation)
+            self.itemNode.addChild(hana)
+           
+            
+        })
+        //次の花作成までの時間待ちのアクションを作成
+        let waitAnimation = SKAction.wait(forDuration: 2)
+        //花を作成->時間待ち->花を作成を無限に繰り返すアクションを作成
+        let repeatForeverAnimation = SKAction.repeatForever(SKAction.sequence([createHanaAnimation, waitAnimation]))
+        itemNode.run(repeatForeverAnimation)
         
     }
     
@@ -283,9 +312,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // 衝突のカテゴリー設定
         bird.physicsBody?.categoryBitMask = birdCategory//追加
-        bird.physicsBody?.collisionBitMask = groundCategory | wallCategory//追加
-        bird.physicsBody?.contactTestBitMask = groundCategory | wallCategory//追加
-        
+        bird.physicsBody?.collisionBitMask = groundCategory | wallCategory //追加
+        bird.physicsBody?.contactTestBitMask = groundCategory | wallCategory //追加
         
         // アニメーションを設定
         bird.run(flap)
@@ -306,7 +334,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             print("ScoreUp")
             score += 1
             scoreLabelNode.text = "score:\(score)"//追加
-    
+            
             //ベストスコア更新か確認する
             var bestScore = userDefaults.integer(forKey: "BEST")
             if score > bestScore {
@@ -320,6 +348,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             print("ItemUp")
             item += 1
             itemLabelNode.text = "Item:\(item)"//追加
+            
+            if (contact.bodyA.categoryBitMask & hanaCategory) == hanaCategory {
+                contact.bodyA.node?.removeFromParent()
+            }
+            if (contact.bodyB.categoryBitMask & hanaCategory) == hanaCategory {
+                contact.bodyB.node?.removeFromParent()
+            }
+            
+            do {
+                gethanaPlayer = try AVAudioPlayer(contentsOf: gethanaPath, fileTypeHint: nil)
+                gethanaPlayer.play()
+            } catch {
+                print("音が鳴らせません")
+            }
+            
             
         } else {
             //壁か地面と衝突した
@@ -341,12 +384,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         score = 0
         scoreLabelNode.text = "Score:\(score)"//追加
         
+        item = 0
+        itemLabelNode.text = "Item:\(item)"//追加
+        
         bird.position = CGPoint(x: self.frame.size.width * 0.2, y:self.frame.size.height * 0.7)
         bird.physicsBody?.velocity = CGVector.zero
         bird.physicsBody?.collisionBitMask = groundCategory | wallCategory
         bird.zRotation = 0
         
         wallNode.removeAllChildren()
+        itemNode.removeAllChildren()
         
         bird.speed = 1
         scrollNode.speed = 1
